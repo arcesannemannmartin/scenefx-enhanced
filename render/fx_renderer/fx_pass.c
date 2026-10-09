@@ -1272,6 +1272,104 @@ bool fx_render_pass_add_optimized_blur(struct fx_gles_render_pass *pass,
 	return fx_buffer != NULL;
 }
 
+void fx_render_pass_add_liquid_glass(struct fx_gles_render_pass *pass,
+		const struct fx_render_liquid_glass_pass_options *fx_options) {
+	struct fx_renderer *renderer = pass->buffer->renderer;
+	const struct fx_render_texture_options *tex_options = &fx_options->tex_options;
+	const struct wlr_render_texture_options *options = &tex_options->base;
+	struct liquid_glass_data *glass_data = fx_options->glass_data;
+
+	if (!pass->fx_offscreen_buffers || !pass->fx_offscreen_buffers->effects_buffer) {
+		return;
+	}
+
+	TRACY_BOTH_ZONES_START(renderer);
+	push_fx_debug(renderer);
+
+	struct wlr_box dst_box;
+	wlr_render_texture_options_get_dst_box(options, &dst_box);
+
+	// We need to capture the background.
+	// To avoid sampling from the same buffer we are rendering to, we copy the
+	// background into a separate effects buffer.
+	// We capture a larger area to allow for refraction and reflection at the edges.
+	pixman_region32_t capture_region;
+
+	// Leave one extra texel beyond the maximum refracted offset so linear
+	// filtering never blends against uncopied pixels at the capture boundary.
+	int margin = (int)ceil(glass_data->bezel_width) + 1;
+	pixman_region32_init_rect(&capture_region,
+			dst_box.x - margin, dst_box.y - margin,
+			dst_box.width + 2 * margin, dst_box.height + 2 * margin);
+
+	fx_render_pass_read_to_buffer(pass, &capture_region,
+			pass->fx_offscreen_buffers->effects_buffer, pass->buffer);
+	pixman_region32_fini(&capture_region);
+
+	struct wlr_texture *bg_tex = fx_texture_from_buffer(&renderer->wlr_renderer,
+			pass->fx_offscreen_buffers->effects_buffer->buffer);
+	if (!bg_tex) {
+		goto finish;
+	}
+	struct fx_texture *texture = fx_get_texture(bg_tex);
+
+	struct liquid_glass_shader shader = renderer->shaders.liquid_glass;
+	setup_blending(WLR_RENDER_BLEND_MODE_NONE);
+	glDisable(GL_STENCIL_TEST);
+	glUseProgram(shader.program);
+
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, texture->tex);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+	glUniform1i(shader.tex, 0);
+	glUniform1i(shader.surface_type, (int)glass_data->surface_type);
+	glUniform1f(shader.bezel_width, glass_data->bezel_width);
+	glUniform1f(shader.thickness, glass_data->thickness);
+	glUniform1f(shader.refraction_index, glass_data->refraction_index);
+	glUniform1i(shader.specular_enabled, (int)glass_data->specular_enabled);
+	glUniform1f(shader.specular_opacity, glass_data->specular_opacity);
+	glUniform1f(shader.specular_angle, glass_data->specular_angle);
+	glUniform1f(shader.brightness_boost, glass_data->brightness_boost);
+	glUniform1f(shader.saturation_boost, glass_data->saturation_boost);
+	glUniform1f(shader.noise_intensity, glass_data->noise_intensity);
+	glUniform1f(shader.chromatic_aberration, glass_data->chromatic_aberration);
+
+	struct wlr_box effect_box = dst_box;
+	if (fx_options->clipped_region.area.width > 0 && fx_options->clipped_region.area.height > 0) {
+		effect_box = fx_options->clipped_region.area;
+	}
+
+	glUniform2f(shader.size, (float)effect_box.width, (float)effect_box.height);
+	glUniform2f(shader.position, (float)effect_box.x, (float)effect_box.y);
+	glUniform2f(shader.screen_size, (float)pass->buffer->buffer->width, (float)pass->buffer->buffer->height);
+
+	glUniform2f(shader.clip_position, (float)fx_options->clipped_region.area.x, (float)fx_options->clipped_region.area.y);
+	glUniform2f(shader.clip_size, (float)fx_options->clipped_region.area.width, (float)fx_options->clipped_region.area.height);
+	uniform_corner_radii_set(&shader.clip_radius, &fx_options->clipped_region.corners);
+
+	set_proj_matrix(shader.proj, pass->projection_matrix, &dst_box);
+
+	// Texture matrix to map [0,1] quad to the correct background portion
+	struct wlr_fbox bg_src_box = {
+		.x = (double)dst_box.x / pass->buffer->buffer->width,
+		.y = (double)dst_box.y / pass->buffer->buffer->height,
+		.width = (double)dst_box.width / pass->buffer->buffer->width,
+		.height = (double)dst_box.height / pass->buffer->buffer->height,
+	};
+	set_tex_matrix(shader.tex_proj, WL_OUTPUT_TRANSFORM_NORMAL, &bg_src_box);
+
+	render(&dst_box, options->clip, shader.pos_attrib);
+
+	glBindTexture(GL_TEXTURE_2D, 0);
+	wlr_texture_destroy(bg_tex);
+
+finish:
+	pop_fx_debug(renderer);
+	TRACY_BOTH_ZONES_END;
+}
+
 void fx_render_pass_read_to_buffer(struct fx_gles_render_pass *pass,
 		pixman_region32_t *_region, struct fx_framebuffer *dst_buffer,
 		struct fx_framebuffer *src_buffer) {

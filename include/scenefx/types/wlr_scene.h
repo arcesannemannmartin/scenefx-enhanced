@@ -30,6 +30,7 @@
 
 #include "scenefx/types/fx/blur_data.h"
 #include "scenefx/types/fx/clipped_region.h"
+#include "scenefx/types/fx/liquid_glass_data.h"
 #include "scenefx/types/linked_node.h"
 
 struct wlr_output;
@@ -63,6 +64,7 @@ enum wlr_scene_node_type {
 	WLR_SCENE_NODE_SHADOW,
 	WLR_SCENE_NODE_OPTIMIZED_BLUR,
 	WLR_SCENE_NODE_BLUR,
+	WLR_SCENE_NODE_LIQUID_GLASS,
 };
 
 /** A node is an object in the scene. */
@@ -190,6 +192,14 @@ struct wlr_scene_optimized_blur {
 	int width, height;
 
 	bool dirty;
+};
+
+struct wlr_scene_liquid_glass {
+	struct wlr_scene_node node;
+	int width, height;
+
+	struct liquid_glass_data data;
+	struct clipped_region clipped_region;
 };
 
 struct wlr_scene_outputs_update_event {
@@ -518,6 +528,8 @@ struct wlr_scene_shadow *wlr_scene_shadow_from_node(struct wlr_scene_node *node)
 
 struct wlr_scene_blur *wlr_scene_blur_from_node(struct wlr_scene_node *node);
 
+struct wlr_scene_liquid_glass *wlr_scene_liquid_glass_from_node(struct wlr_scene_node *node);
+
 /**
  * If this buffer is backed by a surface, then the struct wlr_scene_surface is
  * returned. If not, NULL will be returned.
@@ -679,6 +691,29 @@ void wlr_scene_blur_set_strength(struct wlr_scene_blur *blur, float strength);
  * NOTE: The positioning is node-relative.
  */
 void wlr_scene_blur_set_clipped_region(struct wlr_scene_blur *blur,
+		struct clipped_region clipped_region);
+
+/**
+ * Add a node displaying a liquid glass effect to the scene-graph.
+ */
+struct wlr_scene_liquid_glass *wlr_scene_liquid_glass_create(struct wlr_scene_tree *parent,
+          int width, int height);
+
+/**
+ * Change the width and height of an existing liquid glass node.
+ */
+void wlr_scene_liquid_glass_set_size(struct wlr_scene_liquid_glass *glass, int width, int height);
+
+/**
+ * Change the liquid glass data.
+ */
+void wlr_scene_liquid_glass_set_data(struct wlr_scene_liquid_glass *glass,
+		struct liquid_glass_data data);
+
+/**
+ * Sets the region where to clip the liquid glass.
+ */
+void wlr_scene_liquid_glass_set_clipped_region(struct wlr_scene_liquid_glass *glass,
 		struct clipped_region clipped_region);
 
 /**

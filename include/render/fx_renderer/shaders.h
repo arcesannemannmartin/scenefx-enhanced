@@ -178,4 +178,33 @@ struct blur_effects_shader {
 
 bool link_blur_effects_program(struct blur_effects_shader *shader);
 
+struct liquid_glass_shader {
+	GLuint program;
+	GLint proj;
+	GLint tex_proj;
+	GLint tex;
+	GLint pos_attrib;
+
+	GLint surface_type;
+	GLint bezel_width;
+	GLint thickness;
+	GLint refraction_index;
+	GLint specular_enabled;
+	GLint specular_opacity;
+	GLint specular_angle;
+	GLint brightness_boost;
+	GLint saturation_boost;
+	GLint noise_intensity;
+	GLint chromatic_aberration;
+	GLint size;
+	GLint position;
+	GLint screen_size;
+
+	GLint clip_position;
+	GLint clip_size;
+	struct shader_corner_radii clip_radius;
+};
+
+bool link_liquid_glass_program(struct liquid_glass_shader *shader);
+
 #endif

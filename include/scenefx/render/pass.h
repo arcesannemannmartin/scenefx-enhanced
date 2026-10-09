@@ -8,6 +8,7 @@
 
 #include "render/egl.h"
 #include "types/fx/clipped_region.h"
+#include "scenefx/types/fx/liquid_glass_data.h"
 
 struct fx_gles_render_pass {
 	struct wlr_render_pass base;
@@ -93,6 +94,12 @@ struct fx_render_blur_pass_options {
 	struct clipped_fregion clipped_region;
 };
 
+struct fx_render_liquid_glass_pass_options {
+	struct fx_render_texture_options tex_options;
+	struct liquid_glass_data *glass_data;
+	struct clipped_fregion clipped_region;
+};
+
 struct fx_gles_render_pass *fx_get_render_pass(struct wlr_render_pass *render_pass);
 
 /**
@@ -149,6 +156,12 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass *pass,
  */
 bool fx_render_pass_add_optimized_blur(struct fx_gles_render_pass *pass,
 		struct fx_render_blur_pass_options *fx_options);
+
+/**
+ * Render liquid glass.
+ */
+void fx_render_pass_add_liquid_glass(struct fx_gles_render_pass *pass,
+		const struct fx_render_liquid_glass_pass_options *options);
 
 /**
  * Render from one buffer to another

@@ -20,6 +20,7 @@
 #include "blur1_frag_src.h"
 #include "blur2_frag_src.h"
 #include "blur_effects_frag_src.h"
+#include "liquid_glass_frag_src.h"
 
 GLuint compile_shader(GLuint type, const GLchar *src) {
 	GLuint shader = glCreateShader(type);
@@ -360,6 +361,44 @@ bool link_blur_effects_program(struct blur_effects_shader *shader) {
 	shader->brightness = glGetUniformLocation(prog, "brightness");
 	shader->contrast = glGetUniformLocation(prog, "contrast");
 	shader->saturation = glGetUniformLocation(prog, "saturation");
+
+	return true;
+}
+
+bool link_liquid_glass_program(struct liquid_glass_shader *shader) {
+	GLchar glass_src[16384];
+	snprintf(glass_src, sizeof(glass_src), "%s\n%s", liquid_glass_frag_src,
+		corner_alpha_frag_src);
+
+	GLuint prog;
+	shader->program = prog = link_program(glass_src);
+	if (!shader->program) {
+		return false;
+	}
+	shader->proj = glGetUniformLocation(prog, "proj");
+	shader->tex = glGetUniformLocation(prog, "tex");
+	shader->pos_attrib = glGetAttribLocation(prog, "pos");
+	shader->tex_proj = glGetUniformLocation(prog, "tex_proj");
+	shader->surface_type = glGetUniformLocation(prog, "surface_type");
+	shader->bezel_width = glGetUniformLocation(prog, "bezel_width");
+	shader->thickness = glGetUniformLocation(prog, "thickness");
+	shader->refraction_index = glGetUniformLocation(prog, "refraction_index");
+	shader->specular_enabled = glGetUniformLocation(prog, "specular_enabled");
+	shader->specular_opacity = glGetUniformLocation(prog, "specular_opacity");
+	shader->specular_angle = glGetUniformLocation(prog, "specular_angle");
+	shader->brightness_boost = glGetUniformLocation(prog, "brightness_boost");
+	shader->saturation_boost = glGetUniformLocation(prog, "saturation_boost");
+	shader->noise_intensity = glGetUniformLocation(prog, "noise_intensity");
+	shader->chromatic_aberration = glGetUniformLocation(prog, "chromatic_aberration");
+	shader->size = glGetUniformLocation(prog, "size");
+	shader->position = glGetUniformLocation(prog, "position");
+	shader->screen_size = glGetUniformLocation(prog, "screen_size");
+	shader->clip_position = glGetUniformLocation(prog, "clip_position");
+	shader->clip_size = glGetUniformLocation(prog, "clip_size");
+	shader->clip_radius.top_left = glGetUniformLocation(prog, "clip_radius_top_left");
+	shader->clip_radius.top_right = glGetUniformLocation(prog, "clip_radius_top_right");
+	shader->clip_radius.bottom_left = glGetUniformLocation(prog, "clip_radius_bottom_left");
+	shader->clip_radius.bottom_right = glGetUniformLocation(prog, "clip_radius_bottom_right");
 
 	return true;
 }

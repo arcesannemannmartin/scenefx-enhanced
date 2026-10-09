@@ -203,6 +203,7 @@ struct fx_renderer {
 		struct blur_shader blur1;
 		struct blur_shader blur2;
 		struct blur_effects_shader blur_effects;
+		struct liquid_glass_shader liquid_glass;
 	} shaders;
 
 	struct wl_list buffers; // fx_framebuffer.link

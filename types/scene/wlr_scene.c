@@ -79,6 +79,12 @@ struct wlr_scene_blur *wlr_scene_blur_from_node(struct wlr_scene_node *node) {
 	return blur;
 }
 
+struct wlr_scene_liquid_glass *wlr_scene_liquid_glass_from_node(struct wlr_scene_node *node) {
+	assert(node->type == WLR_SCENE_NODE_LIQUID_GLASS);
+	struct wlr_scene_liquid_glass *glass = wl_container_of(node, glass, node);
+	return glass;
+}
+
 struct wlr_scene *scene_node_get_root(struct wlr_scene_node *node) {
 	struct wlr_scene_tree *tree;
 	if (node->type == WLR_SCENE_NODE_TREE) {
@@ -272,7 +278,8 @@ static bool _scene_nodes_in_box(struct wlr_scene_node *node, struct wlr_box *box
 	case WLR_SCENE_NODE_BUFFER:
 	case WLR_SCENE_NODE_SHADOW:
 	case WLR_SCENE_NODE_OPTIMIZED_BLUR:
-	case WLR_SCENE_NODE_BLUR:;
+	case WLR_SCENE_NODE_BLUR:
+	case WLR_SCENE_NODE_LIQUID_GLASS:;
 		struct wlr_box node_box = { .x = lx, .y = ly };
 		scene_node_get_size(node, &node_box.width, &node_box.height);
 
@@ -382,7 +389,9 @@ static void scene_node_opaque_region(struct wlr_scene_node *node, int x, int y,
 	} else if (node->type == WLR_SCENE_NODE_SHADOW) {
 		// TODO: test & handle case of blur sigma = 0 and color[3] = 1?
 		return;
-	} else if (node->type == WLR_SCENE_NODE_OPTIMIZED_BLUR || node->type == WLR_SCENE_NODE_BLUR) {
+	} else if (node->type == WLR_SCENE_NODE_OPTIMIZED_BLUR ||
+			node->type == WLR_SCENE_NODE_BLUR ||
+			node->type == WLR_SCENE_NODE_LIQUID_GLASS) {
 		// Always transparent
 		return;
 	}
@@ -1124,6 +1133,52 @@ void wlr_scene_blur_set_size(struct wlr_scene_blur *blur, int width, int height)
 	scene_node_update(&blur->node, NULL);
 }
 
+struct wlr_scene_liquid_glass *wlr_scene_liquid_glass_create(struct wlr_scene_tree *parent,
+          int width, int height) {
+	struct wlr_scene_liquid_glass *glass = calloc(1, sizeof(*glass));
+	if (glass == NULL) {
+		return NULL;
+	}
+	assert(parent);
+	scene_node_init(&glass->node, WLR_SCENE_NODE_LIQUID_GLASS, parent);
+
+	glass->width = width;
+	glass->height = height;
+	glass->clipped_region = (struct clipped_region){0};
+
+	scene_node_update(&glass->node, NULL);
+
+	return glass;
+}
+
+void wlr_scene_liquid_glass_set_size(struct wlr_scene_liquid_glass *glass, int width, int height) {
+	if (glass->width == width && glass->height == height) {
+		return;
+	}
+
+	glass->width = width;
+	glass->height = height;
+
+	scene_node_update(&glass->node, NULL);
+}
+
+void wlr_scene_liquid_glass_set_data(struct wlr_scene_liquid_glass *glass,
+		struct liquid_glass_data data) {
+	glass->data = data;
+	scene_node_update(&glass->node, NULL);
+}
+
+void wlr_scene_liquid_glass_set_clipped_region(struct wlr_scene_liquid_glass *glass,
+		struct clipped_region clipped_region) {
+	if (fx_corner_radii_eq(glass->clipped_region.corners, clipped_region.corners) &&
+		wlr_box_equal(&glass->clipped_region.area, &clipped_region.area)) {
+		return;
+	}
+
+	glass->clipped_region = clipped_region;
+	scene_node_update(&glass->node, NULL);
+}
+
 inline void wlr_scene_blur_set_corner_radius(struct wlr_scene_blur *blur, int corner_radius) {
 	wlr_scene_blur_set_corner_radii(blur, corner_radii_all(corner_radius));
 }
@@ -1730,6 +1785,11 @@ void scene_node_get_size(struct wlr_scene_node *node, int *width, int *height) {
 		*width = blur->width;
 		*height = blur->height;
 		break;
+	case WLR_SCENE_NODE_LIQUID_GLASS:;
+		struct wlr_scene_liquid_glass *glass = wlr_scene_liquid_glass_from_node(node);
+		*width = glass->width;
+		*height = glass->height;
+		break;
 	}
 }
 
@@ -1913,7 +1973,8 @@ static bool scene_node_at_iterator(struct wlr_scene_node *node,
 		}
 	} else if (node->type == WLR_SCENE_NODE_SHADOW
 			|| node->type == WLR_SCENE_NODE_OPTIMIZED_BLUR
-			|| node->type == WLR_SCENE_NODE_BLUR) {
+			|| node->type == WLR_SCENE_NODE_BLUR
+			|| node->type == WLR_SCENE_NODE_LIQUID_GLASS) {
 		// Disable interaction
 		return false;
 	}
@@ -2239,6 +2300,39 @@ static void scene_entry_render(struct render_list_entry *entry, const struct ren
 			.blur_strength = blur->strength,
 		};
 		fx_render_pass_add_blur(fx_pass, &blur_options);
+		break;
+	case WLR_SCENE_NODE_LIQUID_GLASS:;
+		struct wlr_scene_liquid_glass *glass = wlr_scene_liquid_glass_from_node(node);
+
+		struct wlr_box glass_clipped_region_box = glass->clipped_region.area;
+		struct fx_corner_radii glass_clipped_corners = glass->clipped_region.corners;
+
+		// Node relative -> Root relative
+		glass_clipped_region_box.x += x;
+		glass_clipped_region_box.y += y;
+
+		transform_output_box(&glass_clipped_region_box, data);
+
+		struct liquid_glass_data scaled_data = glass->data;
+		scaled_data.bezel_width *= data->scale;
+
+		struct fx_render_liquid_glass_pass_options glass_options = {
+			.tex_options = {
+				.base = {
+					.transform = WL_OUTPUT_TRANSFORM_NORMAL,
+					.alpha = NULL,
+					.blend_mode = WLR_RENDER_BLEND_MODE_NONE,
+					.dst_box = dst_box,
+					.clip = &render_region,
+				},
+			},
+			.glass_data = &scaled_data,
+			.clipped_region = {
+				.area = glass_clipped_region_box,
+				.corners = fx_corner_radii_scale(glass_clipped_corners, data->scale),
+			},
+		};
+		fx_render_pass_add_liquid_glass(fx_pass, &glass_options);
 		break;
 	}
 
